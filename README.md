@@ -1,52 +1,53 @@
-# iOS-style Zhuyin Keyboard for Android
+# Android 注音動態鍵盤
 
-Android input method prototype for an iOS-style dynamic Zhuyin keyboard.
+這是一個 Android 輸入法原型，目標是做出接近 iOS 注音動態鍵盤體驗的注音鍵盤。
 
-This project is not affiliated with, endorsed by, or sponsored by Apple, Sogou,
-the Ministry of Education of Taiwan, or the maintainers of CC-CEDICT.
+[English README](README.en.md)
 
-## Current Features
+本專案不是 Apple、搜狗、臺灣教育部或 CC-CEDICT 維護者的官方專案，也沒有受到上述單位背書或贊助。
 
-- Dynamic Zhuyin keyboard flow inspired by iOS-style input behavior.
-- Stable key positions for Zhuyin and English layouts.
-- Zhuyin candidate lookup from a generated dictionary asset.
-- English, number, and symbol input modes.
+## 目前功能
 
-## Dictionary Data
+- 接近 iOS 風格的動態注音輸入流程。
+- 注音鍵盤與英文鍵盤按鍵位置固定，避免輸入時鍵位跳動。
+- 使用產生後的注音候選字典查詢候選字。
+- 支援注音、英文、數字、符號輸入模式。
+- 一聲與空白鍵邏輯合併，不另外顯示一聲按鍵。
 
-The currently bundled dictionary asset is:
+## 字典資料
+
+目前實際打包在專案中的候選字典是：
 
 - `app/src/main/assets/zhuyin_cedict.tsv`
 
-It was generated from CC-CEDICT data downloaded from MDBG and converted from
-Pinyin readings into Zhuyin keys by:
+這份檔案是由 CC-CEDICT 資料轉換而來：先讀取 CC-CEDICT 的繁體詞條與拼音讀音，再由專案內的腳本轉成注音查詢鍵。
+
+轉換腳本：
 
 - `tools/build_zhuyin_dictionary.py`
 
-See `NOTICE.md` and `app/src/main/assets/zhuyin_cedict_LICENSE.txt` for source
-and license attribution.
+資料來源與授權請看：
 
-## References
+- `NOTICE.md`
+- `app/src/main/assets/zhuyin_cedict_LICENSE.txt`
 
-The keyboard behavior and layout were developed from observation and comparison
-of existing input methods. These references were used for behavioral study only;
-their source code, visual assets, proprietary dictionaries, and bundled data are
-not copied into this repository unless explicitly documented in `NOTICE.md`.
+## 參考資料
 
-- Apple iOS Zhuyin keyboard behavior, observed from user-provided screen
-  recording and manual testing.
-- Sogou Zhuyin/Input Method behavior, used as a comparison reference for IME
-  interaction concepts.
-- Taiwan Ministry of Education dictionary resources, used during earlier
-  experimentation/checking. No Ministry of Education dictionary dump is bundled
-  in the current repository state.
-- CC-CEDICT, used as the current bundled dictionary data source.
+鍵盤行為與排列是在開發過程中觀察、比較既有輸入法後整理出來的。以下項目只作為行為理解與設計參考；除非在 `NOTICE.md` 明確列為打包資料，否則沒有把它們的程式碼、視覺素材、專有詞庫或資料包放進本 repo。
 
-## Licensing
+- Apple iOS 注音鍵盤：用於觀察動態注音輸入流程，包含使用者提供的螢幕錄影與手動測試。
+- 搜狗注音 / 搜狗輸入法：用於比較輸入法互動概念與操作習慣。
+- 臺灣教育部字典資源：早期曾作為國語/注音資料檢查與實驗參考；目前 repo 沒有打包教育部字典 dump。
+- CC-CEDICT：目前打包候選字典的實際資料來源。
 
-No open-source license has been granted for this repository's original project
-code yet. All rights are reserved by the project owner unless a `LICENSE` file is
-added later.
+更完整的第三方資料與參考來源紀錄請看 `NOTICE.md`。
 
-Third-party data retains its own license. In particular, the bundled generated
-dictionary derived from CC-CEDICT is subject to CC-CEDICT's license terms.
+## 授權狀態
+
+目前本專案原始碼尚未另外指定開源授權；除非之後加入 `LICENSE` 檔案，否則專案擁有者保留所有權利。
+
+第三方資料仍依各自授權條款使用。特別是由 CC-CEDICT 轉換而來的候選字典，需遵守 CC-CEDICT 的授權與標示要求。
+
+## 開發提醒
+
+如果之後要新增任何字典、詞頻表、鍵盤素材或其他第三方資料，請先確認授權，並在提交前同步更新 `NOTICE.md`，包含來源網址、取得日期、授權條款與轉換方式。
