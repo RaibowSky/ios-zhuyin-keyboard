@@ -353,7 +353,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
             }
             listOf(
                 rowSpec(sourceRows[0], startSlot = 0),
-                rowSpec(sourceRows[1], startSlot = 0),
+                rowSpec(sourceRows[1], startSlot = if (showFinalPage) 1 else 0),
                 if (showFinalPage) toneRowSpec(sourceRows[2]) else rowSpec(sourceRows[2], startSlot = 0)
             )
         }
