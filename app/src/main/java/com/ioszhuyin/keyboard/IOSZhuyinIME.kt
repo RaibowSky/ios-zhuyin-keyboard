@@ -64,11 +64,14 @@ class IOSZhuyinIME : InputMethodService() {
     }
 
     private fun candidatesForKey(raw: String): List<String> {
+        val merged = mutableListOf<String>()
         for (key in lookupVariants(raw)) {
             val candidates = ZhuyinDictionary.getCandidates(key)
-            if (!candidates.isNullOrEmpty()) return candidates
+            candidates?.forEach { candidate ->
+                if (candidate !in merged) merged.add(candidate)
+            }
         }
-        return emptyList()
+        return merged
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -487,6 +490,7 @@ class IOSZhuyinIME : InputMethodService() {
     private fun lookupVariants(raw: String): List<String> {
         val variants = linkedSetOf<String>()
         variants.add(raw)
+        variants.add(markLastSegmentAsNeutralTone(raw))
         variants.add(stripTones(raw))
         variants.add(markUntonedSegmentsAsFirstTone(raw))
         return variants.filter { it.isNotEmpty() }
@@ -510,10 +514,24 @@ class IOSZhuyinIME : InputMethodService() {
         return builder.toString()
     }
 
+    private fun markLastSegmentAsNeutralTone(raw: String): String {
+        val segments = splitSegments(raw)
+        val last = segments.lastOrNull() ?: return raw
+        val builder = StringBuilder(raw)
+        if (last.hasTone && last.end > last.start) {
+            builder.deleteCharAt(last.end - 1)
+            builder.insert(last.end - 1, NEUTRAL_TONE)
+        } else {
+            builder.insert(last.end, NEUTRAL_TONE)
+        }
+        return builder.toString()
+    }
+
     companion object {
         private const val PAGE_SIZE = 9
         private const val MAX_SYLLABLE_LEN = 3
         private const val FIRST_TONE = "ˉ"
+        private const val NEUTRAL_TONE = "˙"
         private val TONE_CHARS = setOf('ˉ', '˙', 'ˊ', 'ˇ', 'ˋ')
         private val STANDALONE_FINALS = setOf(
             "ㄚ", "ㄛ", "ㄜ", "ㄝ", "ㄞ", "ㄟ", "ㄠ", "ㄡ",
