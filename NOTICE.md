@@ -3,6 +3,8 @@
 This file records external data sources and references used while developing the
 project.
 
+[繁體中文版本](NOTICE.zh-TW.md)
+
 ## Bundled Third-Party Data
 
 ### CC-CEDICT
@@ -29,40 +31,20 @@ CC-CEDICT attribution and compatible license handling when redistributed.
 
 ## Non-Bundled References
 
-These references influenced behavior checks or design decisions, but their
-source code, visual assets, proprietary dictionaries, and bundled data are not
-included in this repository.
+This project was implemented independently.
 
-### Apple iOS Zhuyin Keyboard
+During development, publicly available Chinese input methods and linguistic
+resources were consulted to understand general input workflows, keyboard
+interaction patterns, and Zhuyin conventions.
 
-- Used for behavioral observation of dynamic Zhuyin keyboard flow.
-- Reference material included a user-provided screen recording.
-- No Apple source code, artwork, or private data is included.
-- This project is not affiliated with Apple.
+These references were used only for behavior study, design comparison, and
+linguistic validation. Unless explicitly documented in the bundled third-party
+data section above, this repository does not include third-party source code,
+proprietary dictionaries, visual assets, trademark assets, scraped datasets, or
+other copyrighted materials from those references.
 
-### Sogou Zhuyin / Sogou Input Method
-
-- Used as a comparison reference for input method behavior and interaction
-  concepts.
-- No Sogou source code, artwork, proprietary dictionary, or data package is
-  included.
-- This project is not affiliated with Sogou.
-
-### Taiwan Ministry of Education Dictionary Resources
-
-- Used during earlier experimentation and checking of Mandarin/Zhuyin data.
-- No Ministry of Education dictionary dump is bundled in the current repository
-  state.
-- If Ministry of Education data is reintroduced later, add the exact source URL,
-  dataset name, retrieval date, license terms, and transformation notes here
-  before committing the data.
-
-Commonly referenced Ministry of Education dictionary resources include:
-
-- Revised Mandarin Chinese Dictionary, Ministry of Education / National Academy
-  for Educational Research: https://dict.revised.moe.edu.tw/
-- Ministry of Education dictionary public authorization information should be
-  verified from the official source before redistributing any derived data.
+The currently bundled candidate dictionary is generated only from CC-CEDICT as
+documented above.
 
 ## Repository Policy for Future Data
 
