@@ -16,6 +16,7 @@ class IOSZhuyinIME : InputMethodService() {
     private var keyboardView: ZhuyinKeyboardView? = null
     private var bopomofoTypeface: Typeface? = null
     private var vibrator: android.os.Vibrator? = null
+    private lateinit var userDictionaryStore: UserDictionaryStore
 
     private val composingText = StringBuilder()
     private var allCandidates: List<String> = emptyList()
@@ -59,8 +60,17 @@ class IOSZhuyinIME : InputMethodService() {
     }
 
     private fun getSortedCandidates(raw: String): List<String> {
+        val userCandidates = userCandidatesForKey(raw)
+        val userCandidateSet = userCandidates.toSet()
         val dict = candidatesForKey(raw)
-        return dict.sortedWith(compareByDescending<String> { freq[it] ?: 0 })
+            .filter { it !in userCandidateSet }
+            .sortedWith(compareByDescending<String> { freq[it] ?: 0 })
+        return userCandidates + dict
+    }
+
+    private fun userCandidatesForKey(raw: String): List<String> {
+        if (!::userDictionaryStore.isInitialized) return emptyList()
+        return userDictionaryStore.getCandidates(lookupVariants(raw))
     }
 
     private fun candidatesForKey(raw: String): List<String> {
@@ -82,6 +92,7 @@ class IOSZhuyinIME : InputMethodService() {
         super.onCreate()
         @Suppress("DEPRECATION")
         vibrator = getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator
+        userDictionaryStore = UserDictionaryStore(this)
         loadFreq()
         ZhuyinDictionary.initialize(this)
         bopomofoTypeface = try {

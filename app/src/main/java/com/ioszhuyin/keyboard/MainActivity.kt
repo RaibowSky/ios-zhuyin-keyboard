@@ -1,43 +1,530 @@
 package com.ioszhuyin.keyboard
 
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.net.Uri
+import android.os.Bundle
+import android.view.Gravity
 import android.view.inputmethod.InputMethodManager
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
 
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+    private lateinit var store: UserDictionaryStore
+    private lateinit var adapter: ArrayAdapter<String>
+    private lateinit var zhuyinInput: EditText
+    private lateinit var wordInput: EditText
+    private lateinit var searchInput: EditText
+    private lateinit var statusText: TextView
+
+    private var entries: List<UserDictionaryEntry> = emptyList()
+    private var selectedEntry: UserDictionaryEntry? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        store = UserDictionaryStore(this)
+        buildLayout()
+        refreshList()
+    }
 
-        val enableBtn = findViewById<Button>(R.id.btn_enable_keyboard)
-        val switchBtn = findViewById<Button>(R.id.btn_switch_keyboard)
-        val infoText = findViewById<TextView>(R.id.tv_info)
+    @Deprecated("Used for simple document import/export on older AndroidX setup.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            REQUEST_IMPORT -> importDictionary(uri)
+            REQUEST_EXPORT -> exportDictionary(uri)
+            REQUEST_OVERLAY -> setOverlayImage(uri, data)
+        }
+    }
 
-        enableBtn.setOnClickListener {
-            val intent = Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            startActivity(intent)
+    private fun buildLayout() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            setBackgroundColor(0xFFF3F4F6.toInt())
         }
 
-        switchBtn.setOnClickListener {
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showInputMethodPicker()
+        val title = TextView(this).apply {
+            text = "動態注音鍵盤"
+            textSize = 26f
+            setTextColor(0xFF1F2937.toInt())
+            gravity = Gravity.CENTER
+        }
+        root.addView(title, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+        val subtitle = TextView(this).apply {
+            text = "字典管理"
+            textSize = 15f
+            setTextColor(0xFF6B7280.toInt())
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(16))
+        }
+        root.addView(subtitle, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+        root.addView(
+            button("啟用鍵盤", 0xFF3B82F6.toInt()) {
+                startActivity(Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
+        )
+        root.addView(
+            button("切換鍵盤", 0xFF10B981.toInt()) {
+                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showInputMethodPicker()
+            }
+        )
+
+        statusText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(0xFF4B5563.toInt())
+            setPadding(0, dp(14), 0, dp(8))
+        }
+        root.addView(statusText, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+        zhuyinInput = editText("注音，例如 ㄇㄚ˙")
+        wordInput = editText("詞彙，例如 嗎")
+        root.addView(zhuyinInput)
+        root.addView(zhuyinPad())
+        root.addView(wordInput)
+
+        val editRow = row()
+        editRow.addView(button("新增", 0xFF2563EB.toInt()) { addEntry() }, rowWeight())
+        editRow.addView(button("更新", 0xFF7C3AED.toInt()) { updateEntry() }, rowWeight())
+        editRow.addView(button("清空", 0xFF6B7280.toInt()) { clearSelection() }, rowWeight())
+        root.addView(editRow)
+
+        searchInput = editText("搜尋注音或詞彙")
+        root.addView(searchInput)
+
+        val searchRow = row()
+        searchRow.addView(button("搜尋", 0xFF374151.toInt()) { refreshList() }, rowWeight())
+        searchRow.addView(button("顯示全部", 0xFF6B7280.toInt()) {
+            searchInput.setText("")
+            refreshList()
+        }, rowWeight())
+        searchRow.addView(button("刪除", 0xFFDC2626.toInt()) { confirmDelete() }, rowWeight())
+        root.addView(searchRow)
+
+        val fileRow = row()
+        fileRow.addView(button("匯入", 0xFF0891B2.toInt()) { openImportFile() }, rowWeight())
+        fileRow.addView(button("匯出", 0xFF059669.toInt()) { openExportFile() }, rowWeight())
+        root.addView(fileRow)
+
+        if (isDebugBuild()) {
+            root.addView(debugMetricsPanel())
         }
 
-        infoText.text = buildString {
-            appendLine("動態注音鍵盤")
-            appendLine()
-            appendLine("使用方法：")
-            appendLine("1. 點擊「開啟鍵盤設定」")
-            appendLine("2. 在 Android 的輸入法清單中啟用本鍵盤")
-            appendLine("3. 返回後點擊「切換鍵盤」")
-            appendLine("4. 選擇「動態注音鍵盤」")
-            appendLine()
-            appendLine("Android 會對所有第三方鍵盤顯示標準安全提醒。")
-            appendLine("本鍵盤目前不需要網路權限，輸入內容只在裝置上處理，不會上傳。")
+        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_activated_1, mutableListOf())
+        val listView = ListView(this).apply {
+            adapter = this@MainActivity.adapter
+            choiceMode = ListView.CHOICE_MODE_SINGLE
+            setOnItemClickListener { _, _, position, _ ->
+                selectedEntry = entries.getOrNull(position)
+                selectedEntry?.let {
+                    zhuyinInput.setText(it.zhuyin)
+                    wordInput.setText(it.word)
+                    statusText.text = "正在編輯：${it.zhuyin} → ${it.word}"
+                }
+            }
         }
+        root.addView(listView, LinearLayout.LayoutParams.MATCH_PARENT, dp(260))
+
+        val info = TextView(this).apply {
+            text = "匯入支援 JSON，或每行「注音<TAB>詞彙」的 TSV。使用者字典候選會排在最前面，且會自動去除重複候選。"
+            textSize = 13f
+            setTextColor(0xFF6B7280.toInt())
+            setPadding(0, dp(12), 0, 0)
+        }
+        root.addView(info)
+
+        setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun addEntry() {
+        runCatching {
+            store.addEntry(zhuyinInput.text.toString(), wordInput.text.toString())
+        }.onSuccess {
+            toast("已新增詞彙")
+            clearSelection()
+            refreshList()
+        }.onFailure {
+            toast(it.message ?: "新增失敗")
+        }
+    }
+
+    private fun updateEntry() {
+        val entry = selectedEntry
+        if (entry == null) {
+            toast("請先點選要編輯的詞彙")
+            return
+        }
+        runCatching {
+            store.updateEntry(entry.id, zhuyinInput.text.toString(), wordInput.text.toString())
+        }.onSuccess {
+            toast("已更新詞彙")
+            clearSelection()
+            refreshList()
+        }.onFailure {
+            toast(it.message ?: "更新失敗")
+        }
+    }
+
+    private fun confirmDelete() {
+        val entry = selectedEntry
+        if (entry == null) {
+            toast("請先點選要刪除的詞彙")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("刪除詞彙")
+            .setMessage("確定刪除「${entry.zhuyin} → ${entry.word}」嗎？")
+            .setPositiveButton("刪除") { _, _ ->
+                store.deleteEntry(entry.id)
+                clearSelection()
+                refreshList()
+                toast("已刪除詞彙")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun refreshList() {
+        entries = store.search(searchInputOrEmpty())
+        adapter.clear()
+        adapter.addAll(entries.map { "${it.zhuyin}    ${it.word}" })
+        adapter.notifyDataSetChanged()
+        statusText.text = "使用者字典：${entries.size} 筆"
+    }
+
+    private fun clearSelection() {
+        selectedEntry = null
+        zhuyinInput.setText("")
+        wordInput.setText("")
+        statusText.text = "使用者字典：${entries.size} 筆"
+    }
+
+    private fun openImportFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        startActivityForResult(intent, REQUEST_IMPORT)
+    }
+
+    private fun openExportFile() {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, "zhuyin_user_dictionary.json")
+        }
+        startActivityForResult(intent, REQUEST_EXPORT)
+    }
+
+    private fun importDictionary(uri: Uri) {
+        runCatching {
+            store.importFromUri(contentResolver, uri)
+        }.onSuccess { count ->
+            refreshList()
+            toast("已匯入 $count 筆詞彙")
+        }.onFailure {
+            toast(it.message ?: "匯入失敗")
+        }
+    }
+
+    private fun exportDictionary(uri: Uri) {
+        runCatching {
+            store.exportToUri(contentResolver, uri)
+        }.onSuccess {
+            toast("已匯出使用者字典")
+        }.onFailure {
+            toast(it.message ?: "匯出失敗")
+        }
+    }
+
+    private fun setOverlayImage(uri: Uri, data: Intent?) {
+        runCatching {
+            val readFlag = (data?.flags ?: 0) and Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (readFlag != 0) {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            KeyboardMetrics.prefs(this).edit()
+                .putString(KeyboardMetrics.KEY_OVERLAY_URI, uri.toString())
+                .putBoolean(KeyboardMetrics.KEY_OVERLAY_ENABLED, true)
+                .apply()
+        }.onSuccess {
+            toast("已設定 Overlay 圖片")
+        }.onFailure {
+            toast(it.message ?: "Overlay 圖片設定失敗")
+        }
+    }
+
+    private fun searchInputOrEmpty(): String =
+        if (::searchInput.isInitialized) searchInput.text.toString() else ""
+
+    private fun debugMetricsPanel(): LinearLayout {
+        val prefs = KeyboardMetrics.prefs(this)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(8))
+            addView(sectionTitle("Debug Overlay / Metrics"))
+
+            val presetRow = row()
+            presetRow.addView(button("PixelPreset", 0xFF475569.toInt()) {
+                KeyboardMetrics.applyPreset(this@MainActivity, KeyboardMetrics.PRESET_PIXEL)
+                toast("已套用 PixelPreset")
+            }, rowWeight())
+            presetRow.addView(button("IOSPreset", 0xFF334155.toInt()) {
+                KeyboardMetrics.applyPreset(this@MainActivity, KeyboardMetrics.PRESET_IOS)
+                toast("已套用 IOSPreset")
+            }, rowWeight())
+            addView(presetRow)
+
+            val overlayRow = row()
+            overlayRow.addView(button("選 Overlay", 0xFF0F766E.toInt()) { openOverlayImage() }, rowWeight())
+            overlayRow.addView(button("Overlay 開關", 0xFF64748B.toInt()) {
+                val enabled = !prefs.getBoolean(KeyboardMetrics.KEY_OVERLAY_ENABLED, false)
+                prefs.edit().putBoolean(KeyboardMetrics.KEY_OVERLAY_ENABLED, enabled).apply()
+                toast(if (enabled) "Overlay 已開啟" else "Overlay 已關閉")
+            }, rowWeight())
+            addView(overlayRow)
+
+            addView(alphaSlider())
+            addView(metricSlider("keyHeight", KeyboardMetrics.KEY_KEY_HEIGHT, 34f, 70f))
+            addView(metricSlider("horizontalGap", KeyboardMetrics.KEY_HORIZONTAL_GAP, 0f, 14f))
+            addView(metricSlider("verticalGap", KeyboardMetrics.KEY_VERTICAL_GAP, 0f, 14f))
+            addView(metricSlider("rowOffset1", KeyboardMetrics.KEY_ROW_OFFSET_1, 0f, 2f))
+            addView(metricSlider("rowOffset2", KeyboardMetrics.KEY_ROW_OFFSET_2, 0f, 2f))
+            addView(metricSlider("rowOffset3", KeyboardMetrics.KEY_ROW_OFFSET_3, 0f, 2f))
+            addView(metricSlider("keyboardPadding", KeyboardMetrics.KEY_HORIZONTAL_PADDING, 0f, 20f))
+            addView(metricSlider("keyboardTopPadding", KeyboardMetrics.KEY_TOP_PADDING, 0f, 30f))
+            addView(metricSlider("keyboardBottomPadding", KeyboardMetrics.KEY_BOTTOM_PADDING, 0f, 30f))
+            addView(metricSlider("functionKeyWidth", KeyboardMetrics.KEY_FUNCTION_KEY_WIDTH, 0.7f, 2.4f))
+            addView(metricSlider("spacebarRatio", KeyboardMetrics.KEY_SPACEBAR_RATIO, 2.5f, 7f))
+            addView(metricSlider("candidateBarHeight", KeyboardMetrics.KEY_CANDIDATE_BAR_HEIGHT, 24f, 64f))
+        }
+    }
+
+    private fun sectionTitle(textValue: String): TextView =
+        TextView(this).apply {
+            text = textValue
+            textSize = 16f
+            setTextColor(0xFF1F2937.toInt())
+            setPadding(0, dp(10), 0, dp(8))
+        }
+
+    private fun alphaSlider(): LinearLayout {
+        val prefs = KeyboardMetrics.prefs(this)
+        val label = TextView(this).apply {
+            setTextColor(0xFF374151.toInt())
+            textSize = 13f
+        }
+        val seek = SeekBar(this).apply {
+            max = 100
+            progress = prefs.getInt(KeyboardMetrics.KEY_OVERLAY_ALPHA, 40)
+            setOnSeekBarChangeListener(simpleSeekBarListener { value ->
+                prefs.edit().putInt(KeyboardMetrics.KEY_OVERLAY_ALPHA, value).apply()
+                label.text = "overlayAlpha: $value%"
+            })
+        }
+        label.text = "overlayAlpha: ${seek.progress}%"
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label)
+            addView(seek)
+        }
+    }
+
+    private fun metricSlider(labelText: String, key: String, min: Float, max: Float): LinearLayout {
+        val prefs = KeyboardMetrics.prefs(this)
+        val current = KeyboardMetrics.current(this)
+        val initial = prefs.getFloat(key, metricValue(current, key)).coerceIn(min, max)
+        val label = TextView(this).apply {
+            setTextColor(0xFF374151.toInt())
+            textSize = 13f
+        }
+        val seek = SeekBar(this).apply {
+            this.max = ((max - min) * SLIDER_SCALE).toInt()
+            progress = ((initial - min) * SLIDER_SCALE).toInt()
+            setOnSeekBarChangeListener(simpleSeekBarListener { progressValue ->
+                val value = min + progressValue / SLIDER_SCALE
+                prefs.edit().putFloat(key, value).apply()
+                label.text = "$labelText: ${formatMetric(value)}"
+            })
+        }
+        label.text = "$labelText: ${formatMetric(initial)}"
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label)
+            addView(seek)
+        }
+    }
+
+    private fun simpleSeekBarListener(onChange: (Int) -> Unit): SeekBar.OnSeekBarChangeListener =
+        object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) onChange(progress)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        }
+
+    private fun metricValue(metrics: KeyboardLayoutMetrics, key: String): Float = when (key) {
+        KeyboardMetrics.KEY_KEY_HEIGHT -> metrics.keyHeight
+        KeyboardMetrics.KEY_HORIZONTAL_GAP -> metrics.horizontalGap
+        KeyboardMetrics.KEY_VERTICAL_GAP -> metrics.verticalGap
+        KeyboardMetrics.KEY_ROW_OFFSET_1 -> metrics.rowOffset1
+        KeyboardMetrics.KEY_ROW_OFFSET_2 -> metrics.rowOffset2
+        KeyboardMetrics.KEY_ROW_OFFSET_3 -> metrics.rowOffset3
+        KeyboardMetrics.KEY_HORIZONTAL_PADDING -> metrics.keyboardHorizontalPadding
+        KeyboardMetrics.KEY_TOP_PADDING -> metrics.keyboardTopPadding
+        KeyboardMetrics.KEY_BOTTOM_PADDING -> metrics.keyboardBottomPadding
+        KeyboardMetrics.KEY_FUNCTION_KEY_WIDTH -> metrics.functionKeyWidth
+        KeyboardMetrics.KEY_SPACEBAR_RATIO -> metrics.spacebarWidthRatio
+        KeyboardMetrics.KEY_CANDIDATE_BAR_HEIGHT -> metrics.candidateBarHeight
+        else -> 0f
+    }
+
+    private fun formatMetric(value: Float): String =
+        String.format(java.util.Locale.US, "%.1f", value)
+
+    private fun openOverlayImage() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_OVERLAY)
+    }
+
+    private fun zhuyinPad(): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(8))
+            addView(symbolRow(listOf("ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ")))
+            addView(symbolRow(listOf("ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄓ", "ㄔ", "ㄕ", "ㄖ")))
+            addView(symbolRow(listOf("ㄗ", "ㄘ", "ㄙ", "ㄧ", "ㄨ", "ㄩ", "ㄚ", "ㄛ", "ㄜ", "ㄝ")))
+            addView(symbolRow(listOf("ㄞ", "ㄟ", "ㄠ", "ㄡ", "ㄢ", "ㄣ", "ㄤ", "ㄥ", "ㄦ")))
+            addView(symbolRow(listOf("ˉ", "ˊ", "ˇ", "ˋ", "˙", "退格", "清注音")))
+        }
+
+    private fun symbolRow(symbols: List<String>): HorizontalScrollView {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        symbols.forEach { symbol ->
+            row.addView(symbolButton(symbol))
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+        }
+    }
+
+    private fun symbolButton(symbol: String): Button =
+        Button(this).apply {
+            text = symbol
+            textSize = if (symbol.length == 1) 18f else 13f
+            isAllCaps = false
+            setTextColor(0xFF1F2937.toInt())
+            setBackgroundColor(0xFFE5E7EB.toInt())
+            setOnClickListener {
+                when (symbol) {
+                    "退格" -> {
+                        val current = zhuyinInput.text.toString()
+                        if (current.isNotEmpty()) {
+                            zhuyinInput.setText(current.dropLast(1))
+                            zhuyinInput.setSelection(zhuyinInput.text.length)
+                        }
+                    }
+                    "清注音" -> zhuyinInput.setText("")
+                    else -> {
+                        zhuyinInput.append(symbol)
+                        zhuyinInput.setSelection(zhuyinInput.text.length)
+                    }
+                }
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                if (symbol.length == 1) dp(46) else dp(76),
+                dp(42)
+            ).apply {
+                marginEnd = dp(6)
+                bottomMargin = dp(6)
+            }
+        }
+
+    private fun editText(hintText: String): EditText =
+        EditText(this).apply {
+            hint = hintText
+            textSize = 16f
+            setTextColor(0xFF1F2937.toInt())
+            setHintTextColor(0xFF9CA3AF.toInt())
+            backgroundTintList = ColorStateList.valueOf(0xFFD1D5DB.toInt())
+            setSingleLine(true)
+            setPadding(dp(12), 0, dp(12), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+            ).apply {
+                bottomMargin = dp(8)
+            }
+        }
+
+    private fun button(label: String, color: Int, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            textSize = 15f
+            isAllCaps = false
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(color)
+            setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(50)
+            ).apply {
+                bottomMargin = dp(8)
+            }
+        }
+
+    private fun row(): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+    private fun rowWeight(): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+            marginEnd = dp(6)
+            bottomMargin = dp(8)
+        }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun isDebugBuild(): Boolean =
+        (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val REQUEST_IMPORT = 1001
+        private const val REQUEST_EXPORT = 1002
+        private const val REQUEST_OVERLAY = 1003
+        private const val SLIDER_SCALE = 10f
     }
 }

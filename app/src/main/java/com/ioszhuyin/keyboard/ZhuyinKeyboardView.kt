@@ -1,7 +1,9 @@
 package com.ioszhuyin.keyboard
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.*
+import android.net.Uri
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -31,6 +33,19 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     var bopomofoTypeface: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)  // 預設值, 外部可覆寫
+    private var metrics: KeyboardLayoutMetrics = KeyboardMetrics.current(context)
+    private var overlayBitmap: Bitmap? = null
+    private var loadedOverlayUri: String? = null
+    private val metricsPrefs: SharedPreferences = KeyboardMetrics.prefs(context)
+    private val metricsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (KeyboardMetrics.isKeyboardMetricKey(key)) {
+                metrics = KeyboardMetrics.current(context)
+                overlayBitmap = null
+                loadedOverlayUri = null
+                refresh()
+            }
+        }
 
     // 5 個聲調字元 (Char set, 給 prefix filter 用)
     private val TONE_CHARS: Set<Char> = setOf('ˉ', '˙', 'ˊ', 'ˇ', 'ˋ')
@@ -41,9 +56,11 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
     enum class Mode { ZHUYIN, ENGLISH, NUMBER, SYMBOL }
 
     private var mode: Mode = Mode.ZHUYIN
+    private var englishShifted: Boolean = false
     fun setMode(m: Mode) {
         mode = m
         if (m != Mode.ZHUYIN) showFinalPage = false
+        if (m != Mode.ENGLISH) englishShifted = false
         refresh()
     }
     fun getMode(): Mode = mode
@@ -126,11 +143,11 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
     private val paintToneBg = Paint(Paint.ANTI_ALIAS_FLAG)
     private val paintToneText = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
 
-    private val cornerRadius = dp(5f)
-    private val compositionBarHeight = dp(40f)
-    private val candidateBarHeight = dp(40f)
-    private val keyH = dp(45f)
-    private val controlH = dp(46f)
+    private val cornerRadius: Float get() = dp(metrics.cornerRadius)
+    private val compositionBarHeight: Float get() = dp(metrics.compositionBarHeight)
+    private val candidateBarHeight: Float get() = dp(metrics.candidateBarHeight)
+    private val keyH: Float get() = dp(metrics.keyHeight)
+    private val controlH: Float get() = dp(metrics.controlHeight)
 
     // ============================================================
     // 顏色
@@ -157,7 +174,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         paintKeyBgDisabled.color = colorKeyBgDisabled
         paintKeyStroke.color = colorKeyStroke
         paintKeyStroke.style = Paint.Style.STROKE
-        paintKeyStroke.strokeWidth = dp(0.5f)
+        paintKeyStroke.strokeWidth = dp(metrics.keyStrokeWidth)
         paintComposition.color = Color.BLACK
         paintComposition.textAlign = Paint.Align.LEFT
         paintCandidateText.color = colorKeyText
@@ -171,9 +188,19 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         paintToneText.textAlign = Paint.Align.CENTER
         paintKeyHint.color = Color.parseColor("#9CA3AF")  // gray-400
         paintKeyHint.textAlign = Paint.Align.CENTER
-        paintKeyHint.textSize = dp(9f)
+        paintKeyHint.textSize = dp(metrics.hintFontSize)
 
         // Visible keys are always active, like Apple's dynamic Zhuyin keyboard.
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        metricsPrefs.registerOnSharedPreferenceChangeListener(metricsListener)
+    }
+
+    override fun onDetachedFromWindow() {
+        metricsPrefs.unregisterOnSharedPreferenceChangeListener(metricsListener)
+        super.onDetachedFromWindow()
     }
 
     // ============================================================
@@ -226,22 +253,25 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
     }
 
     private fun relayout() {
+        metrics = KeyboardMetrics.current(context)
         val width = width.toFloat()
         val height = height.toFloat()
         if (width <= 0 || height <= 0) return
 
-        val padX = dp(3f)
-        val rowSpacing = dp(4f)
-        val keySpacing = dp(4f)
-        val controlSpacing = dp(4f)
+        val padX = dp(metrics.keyboardHorizontalPadding)
+        val padTopMetric = dp(metrics.keyboardTopPadding)
+        val padBottomMetric = dp(metrics.keyboardBottomPadding)
+        val rowSpacing = dp(metrics.verticalGap)
+        val keySpacing = dp(metrics.horizontalGap)
+        val controlSpacing = dp(metrics.horizontalGap)
 
         val showComposition = composingText.isNotEmpty()
         val compositionH = if (showComposition) compositionBarHeight + rowSpacing else 0f
         val candidateH = if (candidates.isNotEmpty()) candidateBarHeight + rowSpacing else 0f
 
         val keyboardTotalH = keyH * 3 + rowSpacing * 2 + controlH + controlSpacing
-        val contentH = compositionH + candidateH + keyboardTotalH
-        val padTop = (height - contentH).coerceAtLeast(0f)
+        val contentH = padTopMetric + compositionH + candidateH + keyboardTotalH + padBottomMetric
+        val padTop = (height - contentH).coerceAtLeast(0f) + padTopMetric
 
         var y = padTop
         if (showComposition) {
@@ -285,19 +315,19 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         controlKeys.clear()
         val (actions, labels) = when {
             mode == Mode.ZHUYIN && showFinalPage -> Pair(
-                listOf(ControlAction.ENGLISH, ControlAction.NUMBER,
+                listOf(ControlAction.ENGLISH, ControlAction.NUMBER, ControlAction.EMOJI,
                     ControlAction.SPACE, ControlAction.TONE_SELECT),
-                listOf("ABC", "123", "空白", "選定")
+                listOf("ABC", "123", "☺", "一聲", "選定")
             )
             mode == Mode.ZHUYIN -> Pair(
-                listOf(ControlAction.ENGLISH, ControlAction.NUMBER,
+                listOf(ControlAction.ENGLISH, ControlAction.NUMBER, ControlAction.EMOJI,
                     ControlAction.SPACE, ControlAction.RETURN),
-                listOf("ABC", "123", "空白", "換行")
+                listOf("ABC", "123", "☺", "空白", "換行")
             )
             mode == Mode.ENGLISH -> Pair(
-                listOf(ControlAction.TOGGLE_FINALS, ControlAction.NUMBER, ControlAction.SYMBOL,
-                    ControlAction.SPACE, ControlAction.RETURN, ControlAction.BACKSPACE),
-                listOf("注", "123", "#+=", "空白", "換行", "⌫")
+                listOf(ControlAction.TOGGLE_FINALS, ControlAction.NUMBER, ControlAction.EMOJI,
+                    ControlAction.SPACE, ControlAction.RETURN),
+                listOf("注", "123", "☺", "space", "return")
             )
             mode == Mode.NUMBER -> Pair(
                 listOf(ControlAction.TOGGLE_FINALS, ControlAction.ENGLISH, ControlAction.SYMBOL,
@@ -314,10 +344,29 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                 listOf("空白", "換行", "⌫")
             )
         }
-        val weights = if (mode == Mode.ZHUYIN) {
-            listOf(1f, 1f, 4f, 1.5f)  // 4 鍵: ABC / 123 / 空白(寬) / 選定
-        } else {
-            listOf(1.3f, 1.0f, 1.2f, 4.4f, 1.1f, 1.3f)  // 6 鍵: 正常控制列
+        val weights = when (mode) {
+            Mode.ZHUYIN -> listOf(
+                metrics.functionKeyWidth,
+                metrics.functionKeyWidth,
+                metrics.functionKeyWidth,
+                metrics.spacebarWidthRatio,
+                metrics.returnKeyWidthRatio
+            )
+            Mode.ENGLISH -> listOf(
+                metrics.functionKeyWidth,
+                metrics.functionKeyWidth,
+                metrics.functionKeyWidth,
+                metrics.spacebarWidthRatio,
+                metrics.returnKeyWidthRatio
+            )
+            else -> listOf(
+                metrics.functionKeyWidth,
+                1.0f,
+                1.2f,
+                metrics.spacebarWidthRatio,
+                1.1f,
+                metrics.functionKeyWidth
+            )
         }
         val totalW = weights.sum()
         val totalSpacing = controlSpacing * (weights.size + 1)
@@ -332,11 +381,12 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         // 聲調面板: AFTER_FINAL 時聲調在 controlKeys 內 (iOS 26 風格), 不需要額外 toneRects
         toneRects.clear()
         // 字型大小
-        paintKeyText.textSize = min(keyH * 0.40f, dp(28f))
-        paintControlText.textSize = min(controlH * 0.36f, dp(20f))
-        paintComposition.textSize = dp(20f)
-        paintCandidateText.textSize = dp(17f)
-        paintToneText.textSize = min(keyH * 0.40f, dp(24f))
+        paintKeyText.textSize = min(keyH * 0.70f, dp(metrics.keyFontSize))
+        paintControlText.textSize = min(controlH * 0.50f, dp(metrics.controlFontSize))
+        paintComposition.textSize = dp(metrics.compositionFontSize)
+        paintCandidateText.textSize = dp(metrics.candidateFontSize)
+        paintToneText.textSize = min(keyH * 0.55f, dp(metrics.toneFontSize))
+        paintKeyHint.textSize = dp(metrics.hintFontSize)
     }
 
     fun refresh() {
@@ -352,37 +402,51 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                 ZhuyinDynamicLayout.INITIAL_PAGE_ROWS
             }
             listOf(
-                rowSpec(sourceRows[0], startSlot = 0),
-                rowSpec(sourceRows[1], startSlot = if (showFinalPage) 1 else 0),
-                if (showFinalPage) toneRowSpec(sourceRows[2]) else rowSpec(sourceRows[2], startSlot = 0)
+                rowSpec(sourceRows[0], startSlot = metrics.rowOffset1),
+                rowSpec(sourceRows[1], startSlot = if (showFinalPage) 1f else metrics.rowOffset2),
+                if (showFinalPage) toneRowSpec(sourceRows[2]) else rowSpec(sourceRows[2], startSlot = metrics.rowOffset3)
             )
         }
         Mode.ENGLISH -> listOf(
-            rowSpec(ENGLISH_R1, startSlot = 0),
-            rowSpec(ENGLISH_R2, startSlot = 1),
-            rowSpec(ENGLISH_R3, startSlot = 2)
+            rowSpec(englishLabels(ENGLISH_R1), startSlot = 0f),
+            rowSpec(englishLabels(ENGLISH_R2), startSlot = 0.5f),
+            englishThirdRowSpec()
         )
         Mode.NUMBER -> listOf(
-            rowSpec(NUMBER_R1, startSlot = 0),
-            rowSpec(NUMBER_R2, startSlot = 0),
-            rowSpec(NUMBER_R3, startSlot = 0)
+            rowSpec(NUMBER_R1, startSlot = 0f),
+            rowSpec(NUMBER_R2, startSlot = 0f),
+            rowSpec(NUMBER_R3, startSlot = 0f)
         )
         Mode.SYMBOL -> listOf(
-            rowSpec(SYMBOL_R1, startSlot = 0),
-            rowSpec(SYMBOL_R2, startSlot = 0),
-            rowSpec(SYMBOL_R3, startSlot = 0)
+            rowSpec(SYMBOL_R1, startSlot = 0f),
+            rowSpec(SYMBOL_R2, startSlot = 0f),
+            rowSpec(SYMBOL_R3, startSlot = 0f)
         )
     }
 
-    private fun rowSpec(labels: List<String>, startSlot: Int): KeyRowSpec =
-        KeyRowSpec(labels.mapIndexed { index, label -> KeySpec(label, (startSlot + index).toFloat()) })
+    private fun rowSpec(labels: List<String>, startSlot: Float): KeyRowSpec =
+        KeyRowSpec(labels.mapIndexed { index, label -> KeySpec(label, startSlot + index) })
+
+    private fun englishLabels(labels: List<String>): List<String> =
+        if (englishShifted) labels.map { it.uppercase() } else labels
+
+    private fun englishThirdRowSpec(): KeyRowSpec =
+        KeyRowSpec(
+            listOf(KeySpec("⇧", metrics.rowOffset3, metrics.englishFunctionKeyWidth)) +
+                englishLabels(ENGLISH_R3).mapIndexed { index, label ->
+                    KeySpec(label, metrics.englishLetterStartSlot + index)
+                } +
+                listOf(KeySpec("⌫", columnCountForCurrentMode() - metrics.englishFunctionKeyWidth, metrics.englishFunctionKeyWidth))
+        )
 
     private fun toneRowSpec(labels: List<String>): KeyRowSpec {
         val tones = labels.filter { it in ZhuyinDynamicLayout.TONES }
         return KeyRowSpec(
-            listOf(KeySpec("⇧", 0f)) +
-                tones.mapIndexed { index, tone -> KeySpec(tone, 1.45f + index * 1.5f, 1.25f) } +
-                listOf(KeySpec("⌫", 8f))
+            listOf(KeySpec("⇧", metrics.toneShiftSlot)) +
+                tones.mapIndexed { index, tone ->
+                    KeySpec(tone, metrics.toneStartSlot + index * metrics.toneKeyStep, metrics.toneKeyWidth)
+                } +
+                listOf(KeySpec("⌫", metrics.toneBackspaceSlot))
         )
     }
 
@@ -434,7 +498,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         if (compositionBarRect.height() > 0) {
             drawRoundRect(canvas, compositionBarRect, Color.WHITE, cornerRadius)
             val text = composingText.toString()
-            val cx = compositionBarRect.left + dp(14f)
+            val cx = compositionBarRect.left + dp(metrics.compositionTextLeftPadding)
             val cy = compositionBarRect.centerY() - (paintComposition.ascent() + paintComposition.descent()) / 2
             canvas.drawText(text, cx, cy, paintComposition)
         }
@@ -444,27 +508,27 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
             drawRect(canvas, candidateBarRect, Color.parseColor("#E5E7EB"))
             val cands = candidates.take(9)
             val n = cands.size.coerceAtLeast(1)
-            val padInner = dp(2f)
-            val candSpacing = dp(2f)
-            val moreW = if (hasMoreCandidates) dp(32f) + candSpacing else 0f
+            val padInner = dp(metrics.candidateInnerPadding)
+            val candSpacing = dp(metrics.candidateGap)
+            val moreW = if (hasMoreCandidates) dp(metrics.candidateMoreWidth) + candSpacing else 0f
             val candTotalW = candidateBarRect.width() - padInner * 2 - moreW
             val candW = (candTotalW - candSpacing * (n + 1)) / n
             for ((i, c) in cands.withIndex()) {
                 val x = candidateBarRect.left + padInner + candSpacing + i * (candW + candSpacing)
                 val r = RectF(x, candidateBarRect.top + padInner, x + candW, candidateBarRect.bottom - padInner)
                 val bg = if (i == selectedCandidateIndex) Color.parseColor("#C7CCD4") else Color.WHITE
-                drawRoundRect(canvas, r, bg, dp(4f))
+                drawRoundRect(canvas, r, bg, dp(metrics.candidateCornerRadius))
                 val cy = r.centerY() - (paintCandidateText.ascent() + paintCandidateText.descent()) / 2
                 canvas.drawText(c, r.centerX(), cy, paintCandidateText)
             }
             if (hasMoreCandidates && cands.isNotEmpty()) {
-                val moreX = candidateBarRect.right - padInner - dp(32f)
+                val moreX = candidateBarRect.right - padInner - dp(metrics.candidateMoreWidth)
                 val moreR = RectF(moreX, candidateBarRect.top + padInner,
                     candidateBarRect.right - padInner, candidateBarRect.bottom - padInner)
-                drawRoundRect(canvas, moreR, Color.parseColor("#D1D5DB"), dp(4f))
+                drawRoundRect(canvas, moreR, Color.parseColor("#D1D5DB"), dp(metrics.candidateCornerRadius))
                 val cy = moreR.centerY() - (paintCandidateText.ascent() + paintCandidateText.descent()) / 2
                 val saved = paintCandidateText.textSize
-                paintCandidateText.textSize = dp(18f)
+                paintCandidateText.textSize = dp(metrics.candidateMoreFontSize)
                 canvas.drawText("▶", moreR.centerX(), cy, paintCandidateText)
                 paintCandidateText.textSize = saved
             }
@@ -485,7 +549,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
             // 邊框
             paintRoundRect.color = colorKeyStroke
             paintRoundRect.style = Paint.Style.STROKE
-            paintRoundRect.strokeWidth = dp(0.5f)
+            paintRoundRect.strokeWidth = dp(metrics.keyStrokeWidth)
             canvas.drawRoundRect(k.rect, cornerRadius, cornerRadius, paintRoundRect)
             paintRoundRect.style = Paint.Style.FILL
 
@@ -506,7 +570,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                     else -> ""
                 }
                 if (hintText.isNotEmpty()) {
-                    val hintY = k.rect.bottom - dp(3f)  // 離底 3dp
+                    val hintY = k.rect.bottom - dp(metrics.hintBottomPadding)
                     canvas.drawText(hintText, k.rect.centerX(), hintY, paintKeyHint)
                 }
             }
@@ -550,7 +614,45 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         // === 聲調浮動面板 ===
         // iOS 26 風格: 聲調在 controlKeys 內, 不需要額外繪製
         // (toneRects 已清空)
+        drawDebugOverlay(canvas, bgTop, bgBottom)
     }
+
+    private fun drawDebugOverlay(canvas: Canvas, top: Float, bottom: Float) {
+        if (!isDebugBuild() || bottom <= top) return
+        val prefs = metricsPrefs
+        if (!prefs.getBoolean(KeyboardMetrics.KEY_OVERLAY_ENABLED, false)) return
+        val uriText = prefs.getString(KeyboardMetrics.KEY_OVERLAY_URI, null) ?: return
+        val alpha = prefs.getInt(KeyboardMetrics.KEY_OVERLAY_ALPHA, 40).coerceIn(0, 100)
+        if (alpha <= 0) return
+
+        val bitmap = overlayBitmap ?: loadOverlayBitmap(uriText) ?: return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.alpha = (255 * alpha / 100f).toInt()
+        }
+        canvas.drawBitmap(
+            bitmap,
+            null,
+            RectF(0f, top.coerceAtLeast(0f), width.toFloat(), bottom.coerceAtMost(height.toFloat())),
+            paint
+        )
+    }
+
+    private fun loadOverlayBitmap(uriText: String): Bitmap? {
+        if (loadedOverlayUri == uriText && overlayBitmap != null) return overlayBitmap
+        return try {
+            context.contentResolver.openInputStream(Uri.parse(uriText))?.use { input ->
+                BitmapFactory.decodeStream(input)
+            }?.also { bitmap ->
+                loadedOverlayUri = uriText
+                overlayBitmap = bitmap
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun isDebugBuild(): Boolean =
+        (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     private fun drawRoundRect(canvas: Canvas, r: RectF, color: Int, radius: Float) {
         paintRoundRect.color = color
@@ -586,7 +688,7 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                 pressedKeyIdx = (t as? TouchTarget.ZhuyinKey)?.idx ?: -1
                 pressedControlIdx = (t as? TouchTarget.ControlKey)?.idx ?: -1
                 pressedToneIdx = (t as? TouchTarget.ToneKey)?.idx ?: -1
-                if (t is TouchTarget.ControlKey && controlKeys[t.idx].action == ControlAction.BACKSPACE) {
+                if (isBackspaceTarget(t)) {
                     isBackspaceDown = true
                     onBackspace?.invoke()
                 } else {
@@ -600,6 +702,10 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                 val newP = (t as? TouchTarget.ZhuyinKey)?.idx ?: -1
                 val newC = (t as? TouchTarget.ControlKey)?.idx ?: -1
                 val newT = (t as? TouchTarget.ToneKey)?.idx ?: -1
+                if (isBackspaceDown && !isBackspaceTarget(t)) {
+                    onBackspaceRelease?.invoke()
+                    isBackspaceDown = false
+                }
                 if (newP != pressedKeyIdx || newC != pressedControlIdx || newT != pressedToneIdx) {
                     pressedKeyIdx = newP
                     pressedControlIdx = newC
@@ -648,10 +754,10 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
             val cands = candidates.take(9)
             if (cands.isNotEmpty()) {
                 val n = cands.size
-                val padInner = dp(2f)
-                val candSpacing = dp(2f)
-                val moreW = if (hasMoreCandidates) dp(32f) + candSpacing else 0f
-                val moreX = candidateBarRect.right - padInner - dp(32f)
+                val padInner = dp(metrics.candidateInnerPadding)
+                val candSpacing = dp(metrics.candidateGap)
+                val moreW = if (hasMoreCandidates) dp(metrics.candidateMoreWidth) + candSpacing else 0f
+                val moreX = candidateBarRect.right - padInner - dp(metrics.candidateMoreWidth)
                 if (hasMoreCandidates && x > moreX) {
                     return TouchTarget.MorePage
                 }
@@ -710,20 +816,36 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
                     when {
                         key.isTone -> onToneSelected?.invoke(key.label)
                         key.isToggle -> onKeyPress?.invoke(key.label)
-                        key.label == "⌫" -> {
-                            onBackspace?.invoke()
-                            onBackspaceRelease?.invoke()
-                        }
+                        key.label == "⌫" -> { /* handled on DOWN/UP for repeat delete */ }
                         key.label.isNotEmpty() -> onKeyPress?.invoke(key.label)
                     }
                 } else {
-                    if (key.label.isNotEmpty()) onSymbolChar?.invoke(key.label)
+                    when (key.label) {
+                        "⇧" -> {
+                            englishShifted = !englishShifted
+                            refresh()
+                        }
+                        "⌫" -> { /* handled on DOWN/UP for repeat delete */ }
+                        else -> if (key.label.isNotEmpty()) {
+                            onSymbolChar?.invoke(key.label)
+                            if (mode == Mode.ENGLISH && englishShifted) {
+                                englishShifted = false
+                                refresh()
+                            }
+                        }
+                    }
                 }
             }
             is TouchTarget.ToneKey -> {
                 onToneSelected?.invoke(ZhuyinDynamicLayout.TONES[t.idx])
             }
         }
+    }
+
+    private fun isBackspaceTarget(target: TouchTarget?): Boolean = when (target) {
+        is TouchTarget.ControlKey -> controlKeys[target.idx].action == ControlAction.BACKSPACE
+        is TouchTarget.ZhuyinKey -> zhuyinKeys[target.idx].label == "⌫"
+        else -> false
     }
 
     private fun dp(px: Float): Float = px * resources.displayMetrics.density
