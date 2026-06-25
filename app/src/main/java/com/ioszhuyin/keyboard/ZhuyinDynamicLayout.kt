@@ -9,15 +9,15 @@ package com.ioszhuyin.keyboard
 object ZhuyinDynamicLayout {
 
     val INITIAL_PAGE_ROWS: List<List<String>> = listOf(
-        listOf("ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ", ""),
+        listOf("ㄅ", "ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ", "ㄋ", "ㄌ"),
         listOf("ㄍ", "ㄎ", "ㄏ", "ㄐ", "ㄑ", "ㄒ", "ㄧ", "ㄨ", "ㄩ"),
-        listOf("", "ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ", "ㄘ", "ㄙ", "")
+        listOf("ㄓ", "ㄔ", "ㄕ", "ㄖ", "ㄗ", "ㄘ", "ㄙ")
     )
 
     val FINAL_PAGE_ROWS: List<List<String>> = listOf(
-        listOf("ㄚ", "ㄛ", "ㄜ", "ㄝ", "ㄞ", "ㄟ", "ㄠ", "ㄡ", ""),
-        listOf("ㄢ", "ㄣ", "ㄤ", "ㄥ", "ㄦ", "ㄧ", "ㄨ", "ㄩ", ""),
-        listOf("", "⇧", "ˊ", "ˇ", "ˋ", "˙", "⌫", "", "")
+        listOf("ㄚ", "ㄛ", "ㄜ", "ㄝ", "ㄞ", "ㄟ", "ㄠ", "ㄡ"),
+        listOf("ㄢ", "ㄣ", "ㄤ", "ㄥ", "ㄦ", "ㄧ", "ㄨ", "ㄩ"),
+        listOf("⇧", "ˊ", "ˇ", "ˋ", "˙", "⌫")
     )
 
     val TONES: List<String> = listOf("ˊ", "ˇ", "ˋ", "˙")

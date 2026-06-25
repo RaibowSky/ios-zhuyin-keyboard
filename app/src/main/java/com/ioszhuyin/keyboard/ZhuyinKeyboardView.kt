@@ -49,8 +49,8 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
     fun getMode(): Mode = mode
 
     private val ENGLISH_R1 = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
-    private val ENGLISH_R2 = listOf("", "a", "s", "d", "f", "g", "h", "j", "k", "l")
-    private val ENGLISH_R3 = listOf("", "", "z", "x", "c", "v", "b", "n", "m", "")
+    private val ENGLISH_R2 = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
+    private val ENGLISH_R3 = listOf("z", "x", "c", "v", "b", "n", "m")
 
     // 數字/符號的固定 layout (3 列 8 鍵)
     // R1: 1 2 3 4 5 6 7 8
@@ -187,6 +187,10 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         val isTone: Boolean = false,  // 聲調按鈕 (˙ ˊ ˇ ˋ) 觸發 onToneSelected, 不走 onKeyPress
         val isToggle: Boolean = false  // 上箭頭 (切換聲母頁), 不走 onKeyPress
     )
+    private data class KeyRowSpec(
+        val keys: List<String>,
+        val startSlot: Int = 0
+    )
     private data class ControlKey(
         val label: String,
         val action: ControlAction,
@@ -249,25 +253,20 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
             candidateBarRect = RectF()
         }
 
-        // === 4×8 固定 layout: 3 列注音/數字/符號 + 1 列控制 ===
+        // === iOS-style explicit geometry: short rows keep fixed slot offsets ===
         zhuyinKeys.clear()
-        val rows = if (mode == Mode.ZHUYIN) {
-            if (showFinalPage) ZhuyinDynamicLayout.FINAL_PAGE_ROWS
-            else ZhuyinDynamicLayout.INITIAL_PAGE_ROWS
-        } else {
-            currentRows()
-        }
+        val rows = currentKeyRows()
         for ((r, row) in rows.withIndex()) {
             val n = columnCountForCurrentMode()
             val totalSpacing = keySpacing * (n + 1)
             val keyW = (width - 2 * padX - totalSpacing) / n
-            for (c in 0 until n) {
-                val sym = row.getOrElse(c) { "" }
-                val x = padX + keySpacing + c * (keyW + keySpacing)
+            for ((keyIndex, sym) in row.keys.withIndex()) {
+                val slot = row.startSlot + keyIndex
+                val x = padX + keySpacing + slot * (keyW + keySpacing)
                 val rect = RectF(x, y, x + keyW, y + keyH)
                 val isTone = mode == Mode.ZHUYIN && sym in ZhuyinDynamicLayout.TONES
                 val isToggle = mode == Mode.ZHUYIN && sym == "⇧"
-                zhuyinKeys.add(ZhuyinKey(sym, r, c, rect, isTone, isToggle))
+                zhuyinKeys.add(ZhuyinKey(sym, r, slot, rect, isTone, isToggle))
             }
             y += keyH + rowSpacing
         }
@@ -339,15 +338,34 @@ class ZhuyinKeyboardView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun currentRows(): List<List<String>> = when (mode) {
-        Mode.ZHUYIN -> listOf(
-            ZhuyinDynamicLayout.ROW1_KEYS,
-            ZhuyinDynamicLayout.ROW2_KEYS,
-            ZhuyinDynamicLayout.ROW3_KEYS
+    private fun currentKeyRows(): List<KeyRowSpec> = when (mode) {
+        Mode.ZHUYIN -> {
+            val sourceRows = if (showFinalPage) {
+                ZhuyinDynamicLayout.FINAL_PAGE_ROWS
+            } else {
+                ZhuyinDynamicLayout.INITIAL_PAGE_ROWS
+            }
+            listOf(
+                KeyRowSpec(sourceRows[0], startSlot = 0),
+                KeyRowSpec(sourceRows[1], startSlot = 0),
+                KeyRowSpec(sourceRows[2], startSlot = 1)
+            )
+        }
+        Mode.ENGLISH -> listOf(
+            KeyRowSpec(ENGLISH_R1, startSlot = 0),
+            KeyRowSpec(ENGLISH_R2, startSlot = 1),
+            KeyRowSpec(ENGLISH_R3, startSlot = 2)
         )
-        Mode.ENGLISH -> listOf(ENGLISH_R1, ENGLISH_R2, ENGLISH_R3)
-        Mode.NUMBER -> listOf(NUMBER_R1, NUMBER_R2, NUMBER_R3)
-        Mode.SYMBOL -> listOf(SYMBOL_R1, SYMBOL_R2, SYMBOL_R3)
+        Mode.NUMBER -> listOf(
+            KeyRowSpec(NUMBER_R1, startSlot = 0),
+            KeyRowSpec(NUMBER_R2, startSlot = 0),
+            KeyRowSpec(NUMBER_R3, startSlot = 0)
+        )
+        Mode.SYMBOL -> listOf(
+            KeyRowSpec(SYMBOL_R1, startSlot = 0),
+            KeyRowSpec(SYMBOL_R2, startSlot = 0),
+            KeyRowSpec(SYMBOL_R3, startSlot = 0)
+        )
     }
 
     private fun columnCountForCurrentMode(): Int = when (mode) {
