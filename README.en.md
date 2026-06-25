@@ -29,6 +29,16 @@ Pinyin readings into Zhuyin keys by:
 See `NOTICE.md` and `app/src/main/assets/zhuyin_cedict_LICENSE.txt` for source
 and license attribution.
 
+## Privacy
+
+The keyboard currently does not request network permission. Typed content is
+processed locally on the device and is not uploaded.
+
+Privacy policies:
+
+- `PrivacyPolicy.md`
+- `PrivacyPolicy.zh-TW.md`
+
 ## References
 
 This project was implemented independently.

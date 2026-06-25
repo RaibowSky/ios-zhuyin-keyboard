@@ -33,6 +33,15 @@
 - `NOTICE.md`
 - `app/src/main/assets/zhuyin_cedict_LICENSE.txt`
 
+## 隱私
+
+本鍵盤目前不需要網路權限，輸入內容在裝置本機處理，不會上傳。
+
+隱私權政策請看：
+
+- `PrivacyPolicy.zh-TW.md`
+- `PrivacyPolicy.md`
+
 ## 參考資料
 
 本專案為獨立實作。
